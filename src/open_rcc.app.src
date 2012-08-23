@@ -1,0 +1,31 @@
+{application, open_rcc, [
+	{description, ""},
+	{vsn, "1"},
+	{registered, []},
+	{applications, [
+		kernel,
+		stdlib,
+		'OpenACD'
+	]},
+	{mod, {open_rcc_app, []}},
+	{env, 
+		[
+			{console_loglevel, info}, 
+%%			{console_loglevel, debug},
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% This is an example on how to use ORCC with https. %%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%			{use_https, true},
+%%			{key_file, "./plugin.d/open_rcc/priv/server_key.pem"},
+%%			{cert_file, "./plugin.d/open_rcc/priv/server_cert.pem"},
+%%			{orcc_password, "jackalope"}
+%%
+			
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%% This is an example on how to use ORCC's auto-end wrapup %%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+			{autoend_wrapup, true},
+			{autoend_wrapup_time_ms, 30000}
+		]
+	}
+]}.
