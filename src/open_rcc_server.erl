@@ -1225,6 +1225,92 @@ handle_request("/get_ivr_options", QueryString, Req) ->
 	
 %%--------------------------------------------------------------------
 %% @doc
+%%  Gets a JSON object containing a list of call UUID's associated with
+%% 	queued call priorities.
+%%	HTTP request: 
+%%			 <server:port>/get_call_priorities
+%%		<pid> - is the process ID of the process to be killed.
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field
+%%					@TODO describe JSON call/uuid list format.
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/get_call_priorities", QueryString, Req) ->
+	CallQueueRecordList = call_queue_config:get_queues(),
+	CallQueueNameList = [CallQueue#call_queue.name || CallQueue <- CallQueueRecordList],
+	QueuedCallsRecords = [{{queue_name, Q}, call_queue:get_calls(queue_manager:get_queue(Q))} || Q <- CallQueueNameList],
+	QueuedCallsTupleList = [[MediaPIDTuple, Name, ID, Skills] || {MediaPIDTuple, Name, ID, Skills} <- lists:flatten(
+						[[{
+						   {media_pid, QueuedCall#queued_call.media},
+						   {queue_name, to_atom(QueueName)},
+						   {id, to_atom(QueuedCall#queued_call.id)},
+						   {skills, [skill_to_json(Skill) || Skill <- QueuedCall#queued_call.skills]}} || {_Key, QueuedCall} <- QueuedCalls]
+						|| {{queue_name, QueueName}, QueuedCalls} <- QueuedCallsRecords])],
+	
+	QueuedCallsRecordList = [ gen_media:get_call(MediaPID) ||  [{media_pid, MediaPID}, QueueNameTuple, _ID, _Skills] <- QueuedCallsTupleList],
+	UUIDandPriorityList = [ [to_atom(CallRecord#call.id), to_atom(CallRecord#call.priority)] ||  CallRecord <- QueuedCallsRecordList],
+	JSON = mochijson2:encode([{success, <<"true">>}, {call_priorities, UUIDandPriorityList}]),
+	Req:respond({200, [{"Content-Type", "application/json"}], JSON});
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Sets the priority of the queued call with the given UUID.
+%%	HTTP request: 
+%%			 <server:port>/set_call_priority?call_uuid=<call uuid>&priority=<new priority>
+%%		<call uuid> - is the UUID of the queued call have its priority modified.
+%%		<new priority> - is the new priority of the queued call with the given UUID. 
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field
+%%      		true: call was found and priority was set.
+%%				false: call was not found and priority was not set. 
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/set_call_priority", QueryString, Req) ->
+	CallUUID = proplists:get_value("call_uuid", QueryString, undefined),
+	NewPriority = proplists:get_value("priority", QueryString, undefined),
+	case {CallUUID, NewPriority} of
+		{undefined, _} ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Undefined UUID.">>)});
+		{_, undefined} ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Undefined priority.">>)});
+		{_, _} ->
+			CallQueueRecordList = call_queue_config:get_queues(),
+			CallQueueNameList = [CallQueue#call_queue.name || CallQueue <- CallQueueRecordList],
+			QueuedCallsRecords = [{{queue_name, Q}, call_queue:get_calls(queue_manager:get_queue(Q))} || Q <- CallQueueNameList],
+			QueuedCallsTupleList = [[MediaPIDTuple, Name, ID, Skills] || {MediaPIDTuple, Name, ID, Skills} <- lists:flatten(
+								[[{
+								   {media_pid, QueuedCall#queued_call.media},
+								   {queue_name, to_atom(QueueName)},
+								   {id, to_atom(QueuedCall#queued_call.id)},
+								   {skills, [skill_to_json(Skill) || Skill <- QueuedCall#queued_call.skills]}} || {_Key, QueuedCall} <- QueuedCalls]
+								|| {{queue_name, QueueName}, QueuedCalls} <- QueuedCallsRecords])],
+			
+			QueuedCallsRecordList = [ {gen_media:get_call(MediaPID), QueueName} ||  [{media_pid, MediaPID}, {queue_name, QueueName}, _ID, _Skills] <- QueuedCallsTupleList],
+			UUIDandCallRecordList = [ {CallRecord#call.id, {CallRecord, QueueName}} ||  {CallRecord, QueueName} <- QueuedCallsRecordList],
+			case proplists:get_value(CallUUID, UUIDandCallRecordList, undefined) of
+				undefined ->
+					Req:respond({200, [{"Content-Type", "application/json"}], 
+								 encode_response(<<"false">>, <<"Could not find queued call by UUID.">>)});
+				{CallRecord, QueueName} ->
+					case queue_manager:get_queue(erlang:atom_to_list(QueueName)) of
+						undefined ->
+							Req:respond({200, [{"Content-Type", "application/json"}], 
+										 encode_response(<<"false">>, <<"Internal Error: could not find queue by name.">>)});
+						QueuePID ->
+%% 							gen_media:set_priority(CallRecord#call.source, erlang:list_to_integer(NewPriority), QueueName, erlang:now()),
+%% 							?DEBUG("~p, ~p", [QueuePID, CallRecord#call.source]),
+%% 							call_queue:set_priority(QueuePID, CallRecord#call.source, NewPriority),
+%% 							call_queue:remove(QueuePID, CallRecord#call.source),
+%% 							call_queue:add(QueuePID, CallRecord#call.source, CallRecord),
+							Req:respond(?RESP_SUCCESS)
+					end
+			end
+	end;
+
+%%--------------------------------------------------------------------
+%% @doc
 %% Puts the given agent's call on hold if it is not already.
 %%	HTTP request: 
 %%			 <server:port>/hold?agent=<agent name>
@@ -1273,7 +1359,7 @@ handle_request("/unhold", QueryString, Req) ->
 %%		200 OK - JSON object containing all logged in agent records
 %% @end
 %%--------------------------------------------------------------------  
-handle_request("/get_agent_list", QueryString, Req) ->
+handle_request("/get_agent_list", _QueryString, Req) ->
 	JSON = get_agent_list_JSON(),
 	Req:respond({200, [{"Content-Type", "application/json"}], JSON});
 
@@ -1287,7 +1373,7 @@ handle_request("/get_agent_list", QueryString, Req) ->
 %%		200 OK - JSON object containing all logged in agent names and states
 %% @end
 %%--------------------------------------------------------------------  
-handle_request("/get_short_agent_list", QueryString, Req) ->
+handle_request("/get_short_agent_list", _QueryString, Req) ->
 	AvailabilityList = agent_manager:list(),
 	NameList = [AgentName || {AgentName, _} <- AvailabilityList],
 	AgentRecords = [agent:dump_state(cpx:get_agent(Name)) || Name <- NameList],
