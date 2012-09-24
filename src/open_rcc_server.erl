@@ -1301,9 +1301,9 @@ handle_request("/set_call_priority", QueryString, Req) ->
 						QueuePID ->
 %% 							gen_media:set_priority(CallRecord#call.source, erlang:list_to_integer(NewPriority), QueueName, erlang:now()),
 %% 							?DEBUG("~p, ~p", [QueuePID, CallRecord#call.source]),
-%% 							call_queue:set_priority(QueuePID, CallRecord#call.source, NewPriority),
-%% 							call_queue:remove(QueuePID, CallRecord#call.source),
-%% 							call_queue:add(QueuePID, CallRecord#call.source, CallRecord),
+ 							call_queue:set_priority(QueuePID, CallRecord#call.source, NewPriority),
+							call_queue:remove(QueuePID, CallRecord#call.source),
+							call_queue:add(QueuePID, CallRecord#call.source, CallRecord),
 							Req:respond(?RESP_SUCCESS)
 					end
 			end
@@ -1379,6 +1379,69 @@ handle_request("/get_short_agent_list", _QueryString, Req) ->
 	AgentRecords = [agent:dump_state(cpx:get_agent(Name)) || Name <- NameList],
 	UnencodedJSON = [{short_agent_list, [[{login, to_atom(Record#agent.login)}, {state, to_atom(Record#agent.state)}] || Record <- AgentRecords]}],
 	Req:respond({200, [{"Content-Type", "application/json"}], mochijson2:encode(UnencodedJSON)});
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Kicks the call with the given UUID.
+%%	HTTP request: 
+%%			 <server:port>/kick_call?call_uuid=<call uuid>
+%%		<call uuid> - is the UUID of the call to be kicked
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field
+%%      		true: call was found and kicked
+%%				false: call was not found and was not kicked 
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/kick_call", QueryString, Req) ->
+	CallUUID = proplists:get_value("call_uuid", QueryString, undefined),
+	case CallUUID of
+		undefined ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Undefined UUID.">>)});
+		_ ->
+			CallQueueRecordList = call_queue_config:get_queues(),
+			CallQueueNameList = [CallQueue#call_queue.name || CallQueue <- CallQueueRecordList],
+			QueuedCallsRecords = [{{queue_name, Q}, call_queue:get_calls(queue_manager:get_queue(Q))} || Q <- CallQueueNameList],
+			QueuedCallsTupleList = [[MediaPIDTuple, Name, ID, Skills] || {MediaPIDTuple, Name, ID, Skills} <- lists:flatten(
+								[[{
+								   {media_pid, QueuedCall#queued_call.media},
+								   {queue_name, to_atom(QueueName)},
+								   {id, to_atom(QueuedCall#queued_call.id)},
+								   {skills, [skill_to_json(Skill) || Skill <- QueuedCall#queued_call.skills]}} || {_Key, QueuedCall} <- QueuedCalls]
+								|| {{queue_name, QueueName}, QueuedCalls} <- QueuedCallsRecords])],
+			
+			QueuedCallsRecordList = [ {gen_media:get_call(MediaPID), QueueName} ||  [{media_pid, MediaPID}, {queue_name, QueueName}, _ID, _Skills] <- QueuedCallsTupleList],
+			UUIDandCallRecordList = [ {CallRecord#call.id, {CallRecord, QueueName}} ||  {CallRecord, QueueName} <- QueuedCallsRecordList],
+			case proplists:get_value(CallUUID, UUIDandCallRecordList, undefined) of
+				undefined ->
+					Req:respond({200, [{"Content-Type", "application/json"}], 
+								 encode_response(<<"false">>, <<"Could not find queued call by UUID.">>)});
+				{CallRecord, _QueueName} ->
+					MPID = CallRecord#call.source,
+					cpx:kick_call(MPID)
+			end
+	end;
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Kicks the given agent.
+%%	HTTP request: 
+%%			 <server:port>/kick_agent?agent=<agent name>
+%%		<agent name> - is the name of the agent to be kicked
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field
+%%      		true: agent was found and kicked
+%%				false: agent was not found and was not kicked 
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/kick_agent", QueryString, Req) ->
+	 case get_agentpid(QueryString) of
+		  undefined ->
+			  Req:respond(?RESP_AGENT_NOT_LOGGED);
+		  Pid ->
+			  cpx:kick_agent(Pid),
+			  Req:respond(?RESP_SUCCESS)
+	 end;
 
 handle_request(_Path, _QueryString, Req) ->
 	Req:respond({404, [{"Content-Type", "text/html"}], <<"Not Found">>}).
