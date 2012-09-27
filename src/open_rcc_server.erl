@@ -1183,44 +1183,49 @@ handle_request("/get_ivr_options", QueryString, Req) ->
 		  undefined ->
 			Req:respond(?RESP_AGENT_NOT_LOGGED);
 		  Pid ->
-			#agent{statedata=Call} = agent:dump_state(Pid),
-	   		#call{source=MPid} = Call,
-			%This is volatile code: it is sensitive to changes in the 
-			%freeswitch_media gen_server #state record..
-			{state,
-			 _StateName,
-			 _UUID,
-			 _Cook,
-			 _Queue, _Cnode,
-			 _DialString,
-			 _Agent,
-			 _AgentPID,
-			 _RingChannel,
-			 _RingUUID,
-			 _ManagerPID,
-			 _VoiceMail,
-			 _XFerChannel,
-			 _XFerUUID,
-			 _IsInControll,
-			 _IsQueued,
-			 _AllowsVoicemail,
-			 _VMPriorityDiff,
-			 _WarmTransferUUID,
-			 IVROption,
-			 _CaseID,
-			 _MOH,
-			 _RecordPath,
-			 _DialVariables,
-			 _Hold,
-			 _SpawnOncallMon,
-			 _ConferenceID,
-			 _ThirdPartyID,
-			 _ThirdPartyMon,
-			 _SpyChannel,
-			 _NextState} = freeswitch_media:dump_state(MPid),
-			
-			JSON = encode_response(<<"true">>, [ { ivr_option, to_atom(IVROption) } ]),
-			Req:respond({200, [{"Content-Type", "application/json"}], JSON})
+			#agent{statedata=StateData} = agent:dump_state(Pid),
+			case StateData of
+				#call{source=MPid} ->
+					%This is volatile code: it is sensitive to changes in the 
+					%freeswitch_media gen_server #state record..
+					{state,
+					 _StateName,
+					 _UUID,
+					 _Cook,
+					 _Queue, _Cnode,
+					 _DialString,
+					 _Agent,
+					 _AgentPID,
+					 _RingChannel,
+					 _RingUUID,
+					 _ManagerPID,
+					 _VoiceMail,
+					 _XFerChannel,
+					 _XFerUUID,
+					 _IsInControll,
+					 _IsQueued,
+					 _AllowsVoicemail,
+					 _VMPriorityDiff,
+					 _WarmTransferUUID,
+					 IVROption,
+					 _CaseID,
+					 _MOH,
+					 _RecordPath,
+					 _DialVariables,
+					 _Hold,
+					 _SpawnOncallMon,
+					 _ConferenceID,
+					 _ThirdPartyID,
+					 _ThirdPartyMon,
+					 _SpyChannel,
+					 _NextState} = freeswitch_media:dump_state(MPid),
+					
+					JSON = encode_response(<<"true">>, [ { ivr_option, to_atom(IVROption) } ]),
+					Req:respond({200, [{"Content-Type", "application/json"}], JSON});
+				_Other ->
+					Req:respond({200, [{"Content-Type", "application/json"}], 
+								 encode_response(<<"false">>, <<"Agent not on call.">>)})
+			end
 	 end;
 	
 %%--------------------------------------------------------------------
@@ -1235,7 +1240,7 @@ handle_request("/get_ivr_options", QueryString, Req) ->
 %%					@TODO describe JSON call/uuid list format.
 %% @end
 %%--------------------------------------------------------------------  
-handle_request("/get_call_priorities", QueryString, Req) ->
+handle_request("/get_call_priorities", _QueryString, Req) ->
 	CallQueueRecordList = call_queue_config:get_queues(),
 	CallQueueNameList = [CallQueue#call_queue.name || CallQueue <- CallQueueRecordList],
 	QueuedCallsRecords = [{{queue_name, Q}, call_queue:get_calls(queue_manager:get_queue(Q))} || Q <- CallQueueNameList],
@@ -1247,7 +1252,7 @@ handle_request("/get_call_priorities", QueryString, Req) ->
 						   {skills, [skill_to_json(Skill) || Skill <- QueuedCall#queued_call.skills]}} || {_Key, QueuedCall} <- QueuedCalls]
 						|| {{queue_name, QueueName}, QueuedCalls} <- QueuedCallsRecords])],
 	
-	QueuedCallsRecordList = [ gen_media:get_call(MediaPID) ||  [{media_pid, MediaPID}, QueueNameTuple, _ID, _Skills] <- QueuedCallsTupleList],
+	QueuedCallsRecordList = [ gen_media:get_call(MediaPID) ||  [{media_pid, MediaPID}, _QueueNameTuple, _ID, _Skills] <- QueuedCallsTupleList],
 	UUIDandPriorityList = [ [to_atom(CallRecord#call.id), to_atom(CallRecord#call.priority)] ||  CallRecord <- QueuedCallsRecordList],
 	JSON = mochijson2:encode([{success, <<"true">>}, {call_priorities, UUIDandPriorityList}]),
 	Req:respond({200, [{"Content-Type", "application/json"}], JSON});
@@ -1418,7 +1423,8 @@ handle_request("/kick_call", QueryString, Req) ->
 								 encode_response(<<"false">>, <<"Could not find queued call by UUID.">>)});
 				{CallRecord, _QueueName} ->
 					MPID = CallRecord#call.source,
-					cpx:kick_call(MPID)
+					cpx:kick_call(MPID),
+					Req:respond(?RESP_SUCCESS)
 			end
 	end;
 
@@ -1444,7 +1450,7 @@ handle_request("/kick_agent", QueryString, Req) ->
 	 end;
 
 handle_request(_Path, _QueryString, Req) ->
-	Req:respond({404, [{"Content-Type", "text/html"}], <<"Not Found">>}).
+	Req:respond({404, [{"Content-Type", "text/html"}], <<"Not Found.">>}).
 
 %%%===================================================================
 %%% Internal functions
