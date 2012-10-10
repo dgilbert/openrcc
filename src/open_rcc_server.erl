@@ -1186,40 +1186,8 @@ handle_request("/get_ivr_options", QueryString, Req) ->
 			#agent{statedata=StateData} = agent:dump_state(Pid),
 			case StateData of
 				#call{source=MPid} ->
-					%This is volatile code: it is sensitive to changes in the 
-					%freeswitch_media gen_server #state record..
-					{state,
-					 _StateName,
-					 _UUID,
-					 _Cook,
-					 _Queue, _Cnode,
-					 _DialString,
-					 _Agent,
-					 _AgentPID,
-					 _RingChannel,
-					 _RingUUID,
-					 _ManagerPID,
-					 _VoiceMail,
-					 _XFerChannel,
-					 _XFerUUID,
-					 _IsInControll,
-					 _IsQueued,
-					 _AllowsVoicemail,
-					 _VMPriorityDiff,
-					 _WarmTransferUUID,
-					 IVROption,
-					 _CaseID,
-					 _MOH,
-					 _RecordPath,
-					 _DialVariables,
-					 _Hold,
-					 _SpawnOncallMon,
-					 _ConferenceID,
-					 _ThirdPartyID,
-					 _ThirdPartyMon,
-					 _SpyChannel,
-					 _NextState} = freeswitch_media:dump_state(MPid),
-					
+					MediaData = freeswitch_media:statedata(MPid),
+					IVROption = proplists:get_value(ivroption, MediaData),
 					JSON = encode_response(<<"true">>, [ { ivr_option, to_atom(IVROption) } ]),
 					Req:respond({200, [{"Content-Type", "application/json"}], JSON});
 				_Other ->
@@ -1484,7 +1452,7 @@ handle_login({allow, Id, Skills, Security, Profile}=_AuthResult,
 										[
 										 {node, to_binary(Node)}, 
 										 {pid, to_binary(AgentPid)}
-									   ])};															 
+									   ])};
 handle_login(_AuthResult, _Username, _Password, _Endpoint, _Bandedness) ->
 	{200, [{"Content-Type", "application/json"}], encode_response(<<"false">>, <<"Invalid username and/or password.">>)}.
 
