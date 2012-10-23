@@ -1417,6 +1417,156 @@ handle_request("/kick_agent", QueryString, Req) ->
 			  Req:respond(?RESP_SUCCESS)
 	 end;
 
+%%--------------------------------------------------------------------
+%% @doc
+%%  Starts recording for a conference. Places the recording in the given
+%%  filename in the /tmp folder.
+%%	HTTP request: 
+%%			 <server:port>/start_conference_recording?agent=<agent name>&filename=<filename>
+%%		<agent name> - is the agent who started the conference to be recorded.
+%%		<filename> - is the name of the file in the /tmp folder to store the .wav data
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field 
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/start_conference_recording", QueryString, Req) ->
+	
+	try
+		case get_agentpid(QueryString) of
+			undefined ->
+				Req:respond(?RESP_AGENT_NOT_LOGGED);
+			Pid ->
+				#agent{statedata=StateData} = agent:dump_state(Pid),
+				case StateData of
+					#call{source=MPid} ->
+						MediaData = freeswitch_media:statedata(MPid),
+						FSNode = proplists:get_value(cnode, MediaData),
+						ConferenceID = proplists:get_value(conference_id, MediaData),
+						case ConferenceID of
+							undefined ->
+								Req:respond({200, [{"Content-Type", "application/json"}], 
+										encode_response(<<"false">>, <<"Agent not in conference.">>)});
+							_ ->
+								case proplists:get_value("filename", QueryString, undefined) of
+									undefined ->
+										Req:respond({200, [{"Content-Type", "application/json"}], 
+												encode_response(<<"false">>, <<"File name not specified.">>)});
+									ConferenceFile ->
+										freeswitch:api(FSNode, conference, ConferenceID ++ " record /tmp/" ++ ConferenceFile),
+										Req:respond(?RESP_SUCCESS)
+								end
+						end;
+					_Other ->
+						Req:respond({200, [{"Content-Type", "application/json"}], 
+								encode_response(<<"false">>, <<"Agent not on call.">>)})
+				end
+		end
+	catch
+		_W:_Y ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Internal error.">>)})
+	end;
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Starts recording for a agent. Places the recording in the given
+%%  filename in the /tmp folder.
+%%	HTTP request: 
+%%			 <server:port>/start_agent_recording?agent=<agent name>&filename=<filename>
+%%		<agent name> - is the agent who is currently oncall
+%%		<filename> - is the path of the file to store the .wav data
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field 
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/start_agent_recording", QueryString, Req) ->
+	try
+		case get_agentpid(QueryString) of
+			undefined ->
+				Req:respond(?RESP_AGENT_NOT_LOGGED);
+			Pid ->
+				#agent{statedata=StateData} = agent:dump_state(Pid),
+				case StateData of
+					#call{source=MPid} ->
+						MediaData = freeswitch_media:statedata(MPid),
+						FSNode = proplists:get_value(cnode, MediaData),
+						AgentRingChannel = proplists:get_value(ringchannel, MediaData),
+						case AgentRingChannel of
+							undefined ->
+								Req:respond({200, [{"Content-Type", "application/json"}], 
+										encode_response(<<"false">>, <<"Agent has no ring channel.">>)});
+							_ ->
+								AgentUUID = freeswitch_ring:get_uuid(AgentRingChannel),
+								case proplists:get_value("filename", QueryString, undefined) of
+									undefined ->
+										Req:respond({200, [{"Content-Type", "application/json"}], 
+												encode_response(<<"false">>, <<"File name not specified.">>)});
+									RecordingFile ->
+										%%(the call will be hungup if creating the recording file fails)
+										freeswitch:api(FSNode, uuid_record, AgentUUID ++ " start " ++ RecordingFile),
+										Req:respond(?RESP_SUCCESS)
+								end
+						end;
+					_Other ->
+						Req:respond({200, [{"Content-Type", "application/json"}], 
+								encode_response(<<"false">>, <<"Agent not on call.">>)})
+				end
+		end
+	catch
+		_W:_Y ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Internal error.">>)})
+	end;
+  
+%%--------------------------------------------------------------------
+%% @doc
+%%  Stops recording for a agent.
+%%	HTTP request: 
+%%			 <server:port>/start_agent_recording?agent=<agent name>&filename=<filename>
+%%		<agent name> - is the agent who is currently oncall
+%%		<filename> - is the path of the file to store the .wav data
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field 
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/stop_agent_recording", QueryString, Req) ->
+	try
+		case get_agentpid(QueryString) of
+			undefined ->
+				Req:respond(?RESP_AGENT_NOT_LOGGED);
+			Pid ->
+				#agent{statedata=StateData} = agent:dump_state(Pid),
+				case StateData of
+					#call{source=MPid} ->
+						MediaData = freeswitch_media:statedata(MPid),
+						FSNode = proplists:get_value(cnode, MediaData),
+						AgentRingChannel = proplists:get_value(ringchannel, MediaData),
+						case AgentRingChannel of
+							undefined ->
+								Req:respond({200, [{"Content-Type", "application/json"}], 
+										encode_response(<<"false">>, <<"Agent has no ring channel.">>)});
+							_ ->
+								AgentUUID = freeswitch_ring:get_uuid(AgentRingChannel),
+								case proplists:get_value("filename", QueryString, undefined) of
+									undefined ->
+										Req:respond({200, [{"Content-Type", "application/json"}], 
+												encode_response(<<"false">>, <<"File name not specified.">>)});
+									RecordingFile ->
+										freeswitch:api(FSNode, uuid_record, AgentUUID ++ " stop " ++ RecordingFile),
+										Req:respond(?RESP_SUCCESS)
+								end
+						end;
+					_Other ->
+						Req:respond({200, [{"Content-Type", "application/json"}], 
+								encode_response(<<"false">>, <<"Agent not on call.">>)})
+				end
+		end
+	catch
+		_W:_Y ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Internal error.">>)})
+	end;
+  
 handle_request(_Path, _QueryString, Req) ->
 	Req:respond({404, [{"Content-Type", "text/html"}], <<"Not Found.">>}).
 
