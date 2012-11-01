@@ -1566,7 +1566,158 @@ handle_request("/stop_agent_recording", QueryString, Req) ->
 			Req:respond({200, [{"Content-Type", "application/json"}], 
 						 encode_response(<<"false">>, <<"Internal error.">>)})
 	end;
-  
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Returns the list of skills available for weighting.
+%%	HTTP request: 
+%%			 <server:port>/get_skill_list
+%%	The method can return:
+%%					@TODO describe JSON skill list format.
+%% @end
+%%--------------------------------------------------------------------  
+handle_request("/get_skill_list", QueryString, Req) ->
+	JSON = get_skill_list_json(),
+	Req:respond({200, [{"Content-Type", "application/json"}], JSON});
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Returns the default skill weight.
+%%	HTTP request: 
+%%			 <server:port>/get_default_skill_weight
+%%	The method can return:
+%%					@TODO describe JSON default skill weight format.
+%% @end
+%%-------------------------------------------------------------------- 
+handle_request("/get_default_skill_weight", _QueryString, Req) ->
+	DefaultSkillWeight = agent_manager:get_default_skill_weight(),
+	JSON = mochijson2:encode([{default_skill_weight, DefaultSkillWeight}]),
+	Req:respond({200, [{"Content-Type", "application/json"}], JSON});
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Sets the default skill weight.
+%%	HTTP request: 
+%%			 <server:port>/get_default_skill_weight
+%%	The method can return:
+%%					@TODO describe JSON default skill weight format.
+%% @end
+%%-------------------------------------------------------------------- 
+%handle_request("/set_default_skill_weight", QueryString, Req) ->
+% @TODO write this function.. Must modify app.config for perminant reset.
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Returns the list of skills associated with a particular agent.
+%%	HTTP request: 
+%%			 <server:port>/get_agent_skills?agent=<agent name>
+%%		<agent name> - is the agent to get skills for.
+%%	The method can return:
+%%					@TODO describe JSON agent skills list format.
+%% @end
+%%-------------------------------------------------------------------- 
+handle_request("/get_agent_skills", QueryString, Req) ->
+	case proplists:get_value("agent", QueryString, undefined) of
+		undefined ->
+			Req:respond({200, [{"Content-Type", "application/json"}], 
+						 encode_response(<<"false">>, <<"Agent name not given.">>)});
+		AgentName ->
+			AgentAuthRecordList = agent_auth:get_agents(),
+			AgentInList = [Agent || Agent <- AgentAuthRecordList, Agent#agent_auth.login == AgentName],
+			case erlang:length(AgentInList) of
+				1 ->
+					[AgentAuth] = AgentInList,
+					SkillsList = AgentAuth#agent_auth.skills,
+					UnencodedJSON = [{skill_weights, [erlang:list_to_atom(term_to_string(Skill)) || Skill <- SkillsList]}],
+					JSON = mochijson2:encode(UnencodedJSON),
+					Req:respond({200, [{"Content-Type", "application/json"}], JSON});
+				_ ->
+					Req:respond({200, [{"Content-Type", "application/json"}], 
+								 encode_response(<<"false">>, <<"Ambiguous [#agent_auth{}] found.">>)})
+			end
+	end;
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Returns the list of weights of the skills associated with a particular agent.
+%%	HTTP request: 
+%%			 <server:port>/get_agent_skill_weights?agent=<agent name>
+%%		<agent name> - is the agent to get skill weights for.
+%%	The method can return:
+%%					@TODO describe JSON agent skills list format.
+%% @end
+%%-------------------------------------------------------------------- 
+handle_request("/get_agent_skill_weights", QueryString, Req) ->
+	case get_agentpid(QueryString) of
+			undefined ->
+				Req:respond(?RESP_AGENT_NOT_LOGGED);
+			Pid ->
+				AllSkills = (agent:dump_state(Pid))#agent.skills,
+				WeightedSkills = agent:get_skill_weights(Pid),
+				DefaultSkillWeight = agent_manager:get_default_skill_weight(),
+				UnencodedJSON = [{to_atom(Skill), to_atom(proplists:get_value(Skill, WeightedSkills, DefaultSkillWeight))} || Skill <- AllSkills],
+				Req:respond({200, [{"Content-Type", "application/json"}], mochijson2:encode(UnencodedJSON)})
+	end;
+
+%%--------------------------------------------------------------------
+%% @doc
+%%  Sets the weight of the skills for the given agent. Any skills the 
+%%  agent has, as given by "/get_agent_skills", that do not have their
+%%  weight modified by this method stay at the default weight, as 
+%%  given by "/get_default_skill_weight". THIS DOES NOT WORK ON MAGIC SKILLS.
+%%	Even though the values supplied as skill names in the skill_weights_json 
+%%  field should be surrounded by quotes, the word in the quotes must be 
+%%	equal to the atom of the skill being modified.
+%%	HTTP request: 
+%%			 <server:port>/set_agent_skill_weights?agent=<agent name>&skill_weights_json=<new weights>
+%%		<agent name> - is the agent to set skill weights for.
+%%		<new weights> - is a json string with the new skill weights.
+%%					EXAMPLE:
+%%						agent=200&skill_weights_json={"english":"100","german":"101"}
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field 
+%% @end
+%%-------------------------------------------------------------------- 
+handle_request("/set_agent_skill_weights", QueryString, Req) ->
+	case get_agentpid(QueryString) of
+			undefined ->
+				Req:respond(?RESP_AGENT_NOT_LOGGED);
+			Pid ->
+				case proplists:get_value("skill_weights_json", QueryString) of
+					undefined ->
+						Req:respond({200, [{"Content-Type", "application/json"}], 
+									 encode_response(<<"false">>, <<"No skill weight json provided.">>)});
+					JSONParameter ->
+						try
+							{struct, SkillWeightStruct} = mochijson2:decode(JSONParameter),
+							[agent:set_particular_skill_weight(Pid,
+															   erlang:list_to_atom(erlang:binary_to_list(Skill)), 
+												   			   erlang:list_to_integer(erlang:binary_to_list(Weight)))
+															   || {Skill, Weight} <- SkillWeightStruct],
+							Req:respond(?RESP_SUCCESS)
+						catch
+							_W:_Y ->
+								Req:respond({200, [{"Content-Type", "application/json"}], 
+											 encode_response(<<"false">>, <<"Could not read provided skill weight JSON.">>)})
+						end
+				end
+	end;
+
+
+%%--------------------------------------------------------------------
+%% @doc
+%%	Just prints an 'INFO' level event to the logs. This was to test the
+%%	mochiweb POST argument parser.
+%%			<server:port>/info?message=<message>
+%%		<message> - is the message to print.
+%%	The method can return:
+%%		200 OK - JSON object contains execution result in 'success' field 
+%% @end
+%%-------------------------------------------------------------------- 
+handle_request("/info", QueryString, Req) ->
+	?INFO("Message received: ~p", [proplists:get_value("message", QueryString, "\"/info\" has been called (with no message provided).")]),
+	Req:respond(?RESP_SUCCESS);
+
 handle_request(_Path, _QueryString, Req) ->
 	Req:respond({404, [{"Content-Type", "text/html"}], <<"Not Found.">>}).
 
@@ -1605,6 +1756,7 @@ handle_login({allow, Id, Skills, Security, Profile}=_AuthResult,
 									   ])};
 handle_login(_AuthResult, _Username, _Password, _Endpoint, _Bandedness) ->
 	{200, [{"Content-Type", "application/json"}], encode_response(<<"false">>, <<"Invalid username and/or password.">>)}.
+
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -1704,6 +1856,17 @@ to_pid(Var) when is_list(Var) ->
 	list_to_pid(Var);
 to_pid(Var) when is_pid(Var) ->
 	Var.
+
+%%--------------------------------------------------------------------
+%% @doc
+%% Returns a JSON object containing the names of all possible skills.
+%% @end
+%%--------------------------------------------------------------------
+get_skill_list_json() -> 
+	SkillRecordsList = call_queue_config:get_skills(),
+	UnencodedJSON = [{skill_list, [SkillRecord#skill_rec.atom || SkillRecord <- SkillRecordsList]}],
+	mochijson2:encode(UnencodedJSON).
+
 %%--------------------------------------------------------------------
 %% @doc
 %% Returns a JSON object containing the record data of all agents
