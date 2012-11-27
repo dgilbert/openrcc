@@ -1576,7 +1576,7 @@ handle_request("/stop_agent_recording", QueryString, Req) ->
 %%					@TODO describe JSON skill list format.
 %% @end
 %%--------------------------------------------------------------------  
-handle_request("/get_skill_list", QueryString, Req) ->
+handle_request("/get_skill_list", _QueryString, Req) ->
 	JSON = get_skill_list_json(),
 	Req:respond({200, [{"Content-Type", "application/json"}], JSON});
 
@@ -1598,7 +1598,7 @@ handle_request("/get_default_skill_weight", _QueryString, Req) ->
 %% @doc
 %%  Sets the default skill weight.
 %%	HTTP request: 
-%%			 <server:port>/get_default_skill_weight
+%%			 <server:port>/set_default_skill_weight
 %%	The method can return:
 %%					@TODO describe JSON default skill weight format.
 %% @end
@@ -1628,7 +1628,7 @@ handle_request("/get_agent_skills", QueryString, Req) ->
 				1 ->
 					[AgentAuth] = AgentInList,
 					SkillsList = AgentAuth#agent_auth.skills,
-					UnencodedJSON = [{skill_weights, [erlang:list_to_atom(term_to_string(Skill)) || Skill <- SkillsList]}],
+					UnencodedJSON = [{skills, [erlang:list_to_atom(term_to_string(Skill)) || Skill <- SkillsList]}],
 					JSON = mochijson2:encode(UnencodedJSON),
 					Req:respond({200, [{"Content-Type", "application/json"}], JSON});
 				_ ->
@@ -1703,7 +1703,6 @@ handle_request("/set_agent_skill_weights", QueryString, Req) ->
 				end
 	end;
 
-
 %%--------------------------------------------------------------------
 %% @doc
 %%	Just prints an 'INFO' level event to the logs. This was to test the
@@ -1717,6 +1716,17 @@ handle_request("/set_agent_skill_weights", QueryString, Req) ->
 handle_request("/info", QueryString, Req) ->
 	?INFO("Message received: ~p", [proplists:get_value("message", QueryString, "\"/info\" has been called (with no message provided).")]),
 	Req:respond(?RESP_SUCCESS);
+
+%%--------------------------------------------------------------------
+%% @doc
+%%	Returns the number of erlang processes currently running.
+%%			<server:port>/num_erl_processes
+%%	The method can return:
+%%		A plain-text integer indicating the number of erlang processes running
+%% @end
+%%-------------------------------------------------------------------- 
+handle_request("/num_erl_processes", _QueryString, Req) ->
+	Req:respond({404, [{"Content-Type", "text/html"}], erlang:list_to_binary(erlang:integer_to_list(erlang:length(erlang:processes())))});
 
 handle_request(_Path, _QueryString, Req) ->
 	Req:respond({404, [{"Content-Type", "text/html"}], <<"Not Found.">>}).
