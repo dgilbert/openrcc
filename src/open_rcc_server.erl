@@ -1655,7 +1655,7 @@ handle_request("/get_agent_skill_weights", QueryString, Req) ->
 				AllSkills = (agent:dump_state(Pid))#agent.skills,
 				WeightedSkills = agent:get_skill_weights(Pid),
 				DefaultSkillWeight = agent_manager:get_default_skill_weight(),
-				UnencodedJSON = [{to_atom(Skill), to_atom(proplists:get_value(Skill, WeightedSkills, DefaultSkillWeight))} || Skill <- AllSkills],
+				UnencodedJSON = [{success, <<"true">>}, {weights, [{to_atom(Skill), to_atom(proplists:get_value(Skill, WeightedSkills, DefaultSkillWeight))} || Skill <- AllSkills]}],
 				Req:respond({200, [{"Content-Type", "application/json"}], mochijson2:encode(UnencodedJSON)})
 	end;
 
