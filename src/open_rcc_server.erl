@@ -469,9 +469,17 @@ handle_request("/set_released", QueryString, Req) ->
 		undefined ->
 			Req:respond(?RESP_AGENT_NOT_LOGGED);
 		Pid ->
-			Reason = get_released_reason(QueryString),
-			agent:set_state(Pid, released, Reason),
-			Req:respond(?RESP_SUCCESS)
+			NewLabel = proplists:get_value("label", QueryString),
+			#agent{state=State, statedata=StateData} = agent:dump_state(Pid),
+			case {State, StateData} of
+				{released, {Id, Label, Bias}} when Label == NewLabel ->
+					JSON = encode_response(<<"true">>,[{message, to_binary(io_lib:format("Agent state already set to ~s", [Label]))}]);
+				_Other ->
+					Reason = get_released_reason(QueryString),
+					agent:set_state(Pid, released, Reason),
+					JSON = encode_response(<<"true">>, [{release_data, to_binary(io_lib:format("~w", [_Other]))}])
+			end,
+			Req:respond({200, [{"Content-Type", "application/json"}], JSON})										
 	end;
 
 %%--------------------------------------------------------------------
